@@ -36,6 +36,9 @@ from scapy.error import Scapy_Exception, log_runtime, warning
 from scapy.extlib import PYX
 import scapy.modules.six as six
 
+
+class CGlobal:
+       ONCE = False
 try:
     import pyx
 except ImportError:
@@ -56,6 +59,10 @@ class RawVal:
         return "<RawVal [%r]>" % self.val
 
 
+class CPacketRes:
+    pass
+
+
 class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
                                 _CanvasDumpExtended)):
     __slots__ = [
@@ -74,6 +81,9 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
         "direction", "sniffed_on",
         # handle snaplen Vs real length
         "wirelen",
+        "_offset",
+        "_length",
+        "offset_fields"
     ]
     name = None
     fields_desc = []
@@ -139,6 +149,9 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
                      if self._name is None else
                      self._name)
         self.default_fields = {}
+        self._offset = 0  # offset of the object
+        self._length = 0
+        self.offset_fields = {} # offset of each field
         self.overload_fields = self._overload_fields
         self.overloaded_fields = {}
         self.fields = {}
@@ -283,7 +296,8 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
 
     def post_dissection(self, pkt):
         """DEV: is called after the dissection of the whole packet"""
-        pass
+        if self.payload:
+            self.payload._offset = self._offset + self._length
 
     def get_field(self, fld):
         """DEV: returns the field instance from the name of the field"""
@@ -324,6 +338,7 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
         clone.fields = self.copy_fields_dict(self.fields)
         clone.default_fields = self.copy_fields_dict(self.default_fields)
         clone.overloaded_fields = self.overloaded_fields.copy()
+        clone._offset = self._offset
         clone.underlayer = self.underlayer
         clone.explicit = self.explicit
         clone.raw_packet_cache = self.raw_packet_cache
@@ -336,6 +351,37 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
         clone.payload.add_underlayer(clone)
         clone.time = self.time
         return clone
+
+    def dump_offsets (self):
+        print("obj-id {0} {1} {2}".format(id(self),self.name ,self._offset))
+        if self.payload:
+            self.payload.dump_offsets()
+
+    def dump_offsets_tree(self, indent = '', base_offset = 0):
+        ct = conf.color_theme
+        print("%s%s %s %s" % (indent,
+                              ct.punct("###["),
+                              ct.layer_name(self.name),
+                              ct.punct("]###")))
+        for f in self.fields_desc:
+            if isinstance(f, ConditionalField) and not f._evalcond(self):
+                continue
+            fvalue = self.getfieldval(f.name)
+            if isinstance(fvalue, Packet) or (f.islist and f.holds_packets and type(fvalue) is list):
+                print('\n%s  %s: %s' % (indent, f.name, base_offset + f._offset))
+                fvalue_gen = SetGen(fvalue, _iterpacket = 0)
+                fvalue_bu = None
+                for fvalue in fvalue_gen:
+                    if fvalue_bu:
+                        fvalue._offset = fvalue_bu._offset + len(fvalue_bu)
+                        print('%s  %s: %s' % (indent, fvalue.name, base_offset + f._offset + fvalue._offset))
+                    fvalue.dump_offsets_tree('    ' + indent, base_offset + f._offset + fvalue._offset)
+                    fvalue_bu = fvalue
+            else:
+                print('%s    %s: %s' % (indent, f.name, base_offset + f._offset))
+        if self.payload:
+            print('---- payload ----')
+            self.payload.dump_offsets_tree(indent, base_offset + self._length)
 
     def _resolve_alias(self, attr):
         new_attr, version = self.deprecated_fields[attr]
@@ -532,6 +578,10 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
     def __len__(self):
         return len(self.__bytes__())
 
+    def dump_fields_offsets (self):
+        for f in self.fields_desc:
+            print ("field %-40s %02d %02d" % (f.name, f._offset,f.get_size_bytes ()))
+
     def copy_field_value(self, fieldname, value):
         return self.get_field(fieldname).do_copy(value)
 
@@ -571,14 +621,24 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
                 return self.raw_packet_cache
         p = b""
         for f in self.fields_desc:
+            if type(p) is tuple:
+                f._offset = len(p[0])
+            else:
+                assert(type(p) is bytes)
+                f._offset = len(p)
             val = self.getfieldval(f.name)
             if isinstance(val, RawVal):
                 sval = raw(val)
                 p += sval
                 if field_pos_list is not None:
                     field_pos_list.append((f.name, sval.encode("string_escape"), len(p), len(sval)))  # noqa: E501
+                f._offset = val
             else:
-                p = f.addfield(self, p, val)
+                try:
+                    p = f.addfield(self, p, val)
+                except Exception as e:
+                    print('Error in %s adding %s, %s' % (self.name, f.name, e))
+                    raise
         return p
 
     def do_build_payload(self):
@@ -587,9 +647,20 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
 
         :return: a string of payload layer
         """
-        return self.payload.do_build()
+        return self.payload.do_build(None)
 
-    def do_build(self):
+    def do_update_payload_offset(self, pkt):
+        self.payload._offset = self._offset + len(pkt)
+
+    def dump_layers_offset(self):
+        p = self
+        while True:
+            print(p.name, "offset :", p._offset)
+            p = p.payload
+            if p is None or isinstance(p, NoPayload):
+                break
+
+    def do_build(self, result):
         """
         Create the default version of the layer
 
@@ -600,14 +671,38 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
         pkt = self.self_build()
         for t in self.post_transforms:
             pkt = t(pkt)
+        # TRex Change
+        self.do_update_payload_offset(pkt)
         pay = self.do_build_payload()
+        # Trex Change
+        if result is not None:
+            result.pkt = self
         if self.raw_packet_cache is None:
-            return self.post_build(pkt, pay)
+            p =  self.post_build(pkt, pay)
+            if result is not None:
+                result.pkt = self
+            return p
         else:
             return pkt + pay
 
     def build_padding(self):
         return self.payload.build_padding()
+
+    def update_build_info (self,other):
+        p = self
+        o = other
+        while True:
+            assert(p.aliastypes == o.aliastypes)
+            assert(type(p) == type(o))
+
+            #copy
+            p._offset = o._offset
+
+            #next 
+            p = p.payload
+            o = o.payload
+            if p is None or isinstance(p, NoPayload):
+                break
 
     def build(self):
         """
@@ -615,10 +710,14 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
 
         :return: string of the packet with the payload
         """
-        p = self.do_build()
+        result = CPacketRes()
+        p = self.do_build(result)
         p += self.build_padding()
         p = self.build_done(p)
+        self.update_build_info(result.pkt)
         return p
+
+
 
     def post_build(self, pkt, pay):
         """
@@ -832,11 +931,16 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
 
     def do_dissect(self, s):
         _raw = s
+        offset = 0
         self.raw_packet_cache_fields = {}
         for f in self.fields_desc:
             if not s:
                 break
+            f._offset = offset
             s, fval = f.getfield(self, s)
+            offset = len(_raw) - (len(s[0]) if type(s) is tuple else len(s))
+            if getattr(f, 'passon', False): # fix for DNS
+                offset += s[1]
             # We need to track fields with mutable values to discard
             # .raw_packet_cache when needed.
             if f.islist or f.holds_packets or f.ismutable:
@@ -870,9 +974,11 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
             self.add_payload(p)
 
     def dissect(self, s):
+        start_len = len(s)
         s = self.pre_dissect(s)
 
         s = self.do_dissect(s)
+        self._length = start_len - len(s)
 
         s = self.post_dissect(s)
 
@@ -927,6 +1033,7 @@ class Packet(six.with_metaclass(Packet_metaclass, BasePacket,
         pkt = self.__class__()
         pkt.explicit = 1
         pkt.fields = kargs
+        pkt._offset = self._offset
         pkt.default_fields = self.copy_fields_dict(self.default_fields)
         pkt.overloaded_fields = self.overloaded_fields.copy()
         pkt.time = self.time
@@ -1469,7 +1576,7 @@ values.
             else:
                 fv = repr(fv)
             f.append("%s=%s" % (fn, fv))
-        c = "%s(%s)" % (self.__class__.__name__, ", ".join(f))
+        c = "%s(%s)" % (self.__class__.__name__, ",".join(f))
         pc = self.payload.command()
         if pc:
             c += "/" + pc
@@ -1578,7 +1685,7 @@ class NoPayload(Packet):
         return False
     __bool__ = __nonzero__
 
-    def do_build(self):
+    def do_build(self, result):
         return b""
 
     def build(self):

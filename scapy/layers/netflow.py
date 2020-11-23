@@ -41,7 +41,8 @@ from scapy.fields import ByteEnumField, ByteField, Field, FieldLenField, \
     StrField, StrFixedLenField, ThreeBytesField, UTCTimeField, XByteField, \
     XShortField, LongField, BitField, ConditionalField, BitEnumField, \
     StrLenField
-from scapy.packet import Packet, bind_layers, bind_bottom_up
+# TRex Change - Add Raw
+from scapy.packet import Packet, bind_layers, bind_bottom_up, Raw
 from scapy.plist import PacketList
 from scapy.sessions import IPSession, DefaultSession
 

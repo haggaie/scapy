@@ -196,9 +196,13 @@ class Route:
         return bcast_list
 
 
-conf.route = Route()
+# TRex Change - Set Route to None
+# conf.route = Route()
+conf.route = None
 
-iface = conf.route.route(None, verbose=0)[0]
+# TRex Changes
+# iface = conf.route.route(None, verbose=0)[0]
+iface = None
 
 if getattr(iface, "name", iface) == conf.loopback_name:
     from scapy.arch import get_working_if

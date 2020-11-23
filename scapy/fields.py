@@ -31,7 +31,7 @@ from scapy.data import EPOCH
 from scapy.error import log_runtime, Scapy_Exception
 from scapy.compat import bytes_hex, chb, orb, plain_str, raw, bytes_encode
 from scapy.pton_ntop import inet_ntop, inet_pton
-from scapy.utils import inet_aton, inet_ntoa, lhex, mac2str, str2mac
+from scapy.utils import inet_aton, inet_ntoa, lhex, mac2str, str2mac, str2bytes
 from scapy.utils6 import in6_6to4ExtractAddr, in6_isaddr6to4, \
     in6_isaddrTeredo, in6_ptop, Net6, teredoAddrExtractInfo
 from scapy.base_classes import BasePacket, Gen, Net, Field_metaclass
@@ -85,7 +85,8 @@ class Field(six.with_metaclass(Field_metaclass, object)):
         "default",
         "sz",
         "owners",
-        "struct"
+        "struct",
+        "_offset",
     ]
     islist = 0
     ismutable = False
@@ -101,6 +102,19 @@ class Field(six.with_metaclass(Field_metaclass, object)):
         self.default = self.any2i(None, default)
         self.sz = struct.calcsize(self.fmt)
         self.owners = []
+        self._offset = 0         # TRex Change
+
+
+    # TRex Change
+    def get_size_bytes(self):
+        if  hasattr(self, 'size'): 
+            return 0 # bitfield
+        else:
+            return self.sz
+
+    # TRex Change
+    def get_size_bits(self):
+        return getattr(self, 'size', self.sz * 8)
 
     def register_owner(self, cls):
         self.owners.append(cls)
@@ -198,7 +212,7 @@ class Field(six.with_metaclass(Field_metaclass, object)):
 
 class Emph(object):
     """Empathize sub-layer for display"""
-    __slots__ = ["fld"]
+    __slots__ = ["fld", "_offset"]
 
     def __init__(self, fld):
         self.fld = fld
@@ -233,7 +247,7 @@ class ActionField(object):
 
 
 class ConditionalField(object):
-    __slots__ = ["fld", "cond"]
+    __slots__ = ["fld", "cond", "_offset"]
 
     def __init__(self, fld, cond):
         self.fld = fld
@@ -286,7 +300,7 @@ use.
 
     """
 
-    __slots__ = ["flds", "dflt", "name"]
+    __slots__ = ["flds", "dflt", "name", "_offset"]
 
     def __init__(self, flds, dflt):
         self.flds = flds
@@ -513,6 +527,9 @@ class MACField(Field):
         return str2mac(x)
 
     def any2i(self, pkt, x):
+        # TRex Change
+        if isinstance(x, str) and len(x) == 6:
+            x = str2bytes(x)
         if isinstance(x, bytes) and len(x) == 6:
             x = self.m2i(pkt, x)
         return x
@@ -597,7 +614,8 @@ class SourceIPField(IPField):
 
     def i2m(self, pkt, x):
         if x is None:
-            x = self.__findaddr(pkt)
+            # TRex Change
+            x = "16.0.0.1"
         return IPField.i2m(self, pkt, x)
 
     def i2h(self, pkt, x):
@@ -722,6 +740,10 @@ class ThreeBytesField(ByteField):
 
     def getfield(self, pkt, s):
         return s[3:], self.m2i(pkt, struct.unpack(self.fmt, b"\x00" + s[:3])[0])  # noqa: E501
+
+    # TRex Change
+    def i2repr(self, pkt, x):
+        return ByteField.i2repr(self, pkt, x)
 
 
 class X3BytesField(ThreeBytesField, XByteField):
@@ -913,7 +935,7 @@ class ShortField(Field):
     def __init__(self, name, default):
         Field.__init__(self, name, default, "H")
 
-
+# TRex Change
 class SignedShortField(Field):
     def __init__(self, name, default):
         Field.__init__(self, name, default, "h")
@@ -1382,6 +1404,31 @@ class StrLenField(StrField):
 
     def randval(self):
         return RandBin(RandNum(0, self.max_length or 1200))
+
+
+# TRex Change - Added the class
+class UTF8LenField(StrLenField):
+    """
+    StrField which value is decoded as UTF-8.
+    """
+    def i2h(self, pkt, x):
+        try:
+            return x.decode('utf-8')
+        except:
+            return x
+
+
+# TRex Change - Added the class
+class VarLenIntField(StrLenField):
+    """
+    StrField which value is attempted to be converted to an int.
+    """
+    def i2h(self, pkt, x):
+        if type(x) is str:
+            return str2int(x)
+        return x
+
+    i2repr = i2h
 
 
 class XStrField(StrField):
