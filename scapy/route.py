@@ -191,9 +191,13 @@ class Route:
         warning("No broadcast address found for iface %s\n", iff)
 
 
-conf.route = Route()
+# TRex Change - Set Route to None
+# conf.route = Route()
+conf.route = None
 
-iface = conf.route.route(None, verbose=0)[0]
+# TRex Changes
+# iface = conf.route.route(None, verbose=0)[0]
+iface = None
 
 # Warning: scapy.consts.LOOPBACK_INTERFACE must always be used statically, because it  # noqa: E501
 # may be changed by scapy/arch/windows during execution

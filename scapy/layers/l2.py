@@ -109,16 +109,17 @@ class DestMACField(MACField):
     def __init__(self, name):
         MACField.__init__(self, name, None)
 
-    def i2h(self, pkt, x):
-        if x is None:
-            try:
-                x = conf.neighbor.resolve(pkt, pkt.payload)
-            except socket.error:
-                pass
-            if x is None:
-                x = "ff:ff:ff:ff:ff:ff"
-                warning("Mac address to reach destination not found. Using broadcast.")  # noqa: E501
-        return MACField.i2h(self, pkt, x)
+    # TRex Change - Commenting out in order to avoid resolve.
+    # def i2h(self, pkt, x):
+    #     if x is None:
+    #         try:
+    #             x = conf.neighbor.resolve(pkt, pkt.payload)
+    #         except socket.error:
+    #             pass
+    #         if x is None:
+    #             x = "ff:ff:ff:ff:ff:ff"
+    #             warning("Mac address to reach destination not found. Using broadcast.")  # noqa: E501
+    #     return MACField.i2h(self, pkt, x)
 
     def i2m(self, pkt, x):
         return MACField.i2m(self, pkt, self.i2h(pkt, x))
@@ -131,19 +132,20 @@ class SourceMACField(MACField):
         MACField.__init__(self, name, None)
         self.getif = (lambda pkt: pkt.route()[0]) if getif is None else getif
 
-    def i2h(self, pkt, x):
-        if x is None:
-            iff = self.getif(pkt)
-            if iff is None:
-                iff = conf.iface
-            if iff:
-                try:
-                    x = get_if_hwaddr(iff)
-                except Exception as e:
-                    warning("Could not get the source MAC: %s" % e)
-            if x is None:
-                x = "00:00:00:00:00:00"
-        return MACField.i2h(self, pkt, x)
+    # TRex Change - Commenting out.
+    # def i2h(self, pkt, x):
+    #     if x is None:
+    #         iff = self.getif(pkt)
+    #         if iff is None:
+    #             iff = conf.iface
+    #         if iff:
+    #             try:
+    #                 x = get_if_hwaddr(iff)
+    #             except Exception as e:
+    #                 warning("Could not get the source MAC: %s" % e)
+    #         if x is None:
+    #             x = "00:00:00:00:00:00"
+    #     return MACField.i2h(self, pkt, x)
 
     def i2m(self, pkt, x):
         return MACField.i2m(self, pkt, self.i2h(pkt, x))
@@ -157,9 +159,10 @@ ETHER_TYPES['802_1AE'] = ETH_P_MACSEC
 
 class Ether(Packet):
     name = "Ethernet"
-    fields_desc = [DestMACField("dst"),
-                   SourceMACField("src"),
-                   XShortEnumField("type", 0x9000, ETHER_TYPES)]
+    # TRex Change - Avoid lookup by putting fixed fields.
+    fields_desc = [ MACField("dst","00:00:00:01:00:00"),
+                    MACField("src","00:00:00:02:00:00"),
+                    XShortEnumField("type", 0x9000, ETHER_TYPES)]
     __slots__ = ["_defrag_pos"]
 
     def hashret(self):

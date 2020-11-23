@@ -70,6 +70,10 @@ if not hasattr(socket, "IPPROTO_IPIP"):
     # Workaround for https://bitbucket.org/secdev/scapy/issue/5119
     socket.IPPROTO_IPIP = 4
 
+# TRex Change
+if not ('IPPROTO_IPIP ' in globals()):
+    IPPROTO_IPIP = 4 
+
 if conf.route6 is None:
     # unused import, only to initialize conf.route6
     import scapy.route6
@@ -276,7 +280,9 @@ class IPv6(_IPv6GuessPayload, Packet, IPTools):
                    ShortField("plen", None),
                    ByteEnumField("nh", 59, ipv6nh),
                    ByteField("hlim", 64),
-                   SourceIP6Field("src", "dst"),  # dst is for src @ selection
+                   # TRex Change - Put Fixed Source Field to avoid look up.
+                   IP6Field("src", "::2"),
+                   # SourceIP6Field("src", "dst"),  # dst is for src @ selection
                    DestIP6Field("dst", "::1")]
 
     def route(self):
@@ -1266,7 +1272,8 @@ icmp6typesminhdrlen = {1: 8,
                        # 140
                        141: 8,
                        142: 8,
-                       143: 8,
+                       # TRex Change - Change 143 from 8 to 16.
+                       143: 16,
                        144: 8,
                        145: 8,
                        146: 8,
@@ -1310,6 +1317,15 @@ icmp6types = {1: "Destination unreachable",
               200: "Private Experimentation",
               201: "Private Experimentation"}
 
+# TRex Change - Added MLDv2 Group Types
+mldv2_group_types = {
+    1: 'Mode is include (1)',
+    2: 'Mode is exclude (2)',
+    3: 'Change to include mode (3)',
+    4: 'Change to exclude mode (4)',
+    5: 'Alloc new sources (5)',
+    6: 'Block old sources (6)',
+    }
 
 class _ICMPv6(Packet):
     name = "ICMPv6 dummy class"
@@ -1488,6 +1504,34 @@ class ICMPv6MLDone(_ICMPv6ML):  # RFC 2710
 
 
 #            Multicast Listener Discovery Version 2 (MLDv2) (RFC3810)       #
+# TRex Change - Added ICMPv6MLReportV2
+class ICMPv6MLReportV2(_ICMPv6): # RFC 3810
+    name = 'MLDv2 - Multicast Listener Report'
+    fields_desc = [ ByteEnumField('type', 143, icmp6types),
+                    ByteField('code', 0),
+                    XShortField('cksum', None),
+                    ShortField('reserved', 0),
+                    ShortField('records_count', 1) ] # for now it's fixed 1 record
+    overload_fields = {IPv6: { 'dst': 'ff02::16', 'hlim': 1, 'nh': 58 }}
+
+    def default_payload_class(self, p):
+        return MLDv2Addr
+
+# TRex Change - Added MLDv2Addr
+# assumes empty aux
+class MLDv2Addr(Packet):
+    name = 'MLDv2 - Address group'
+    fields_desc = [ 
+            ByteEnumField('type', 3, mldv2_group_types),
+            ByteField('aux_len', 0),
+            ShortField('len', 0),
+            IP6Field('multicast_addr', '::'),
+            IP6ListField('addrlist', [], count_from = lambda pkt:pkt.len)
+            ]
+
+    def default_payload_class(self, p):
+        return MLDv2Addr
+
 
 class ICMPv6MLQuery2(_ICMPv6):  # RFC 3810
     name = "MLDv2 - Multicast Listener Query"

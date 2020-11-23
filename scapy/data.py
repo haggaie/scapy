@@ -203,6 +203,8 @@ def load_services(filename):
     spaces = re.compile(b"[ \t]+|\n")
     tdct = DADict(_name="%s-tcp" % filename)
     udct = DADict(_name="%s-udp" % filename)
+    # TRex Change
+    return tdct, udct
     try:
         with open(filename, "rb") as fdesc:
             for line in fdesc:

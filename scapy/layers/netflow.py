@@ -30,12 +30,14 @@ import struct
 from scapy.config import conf
 from scapy.data import IP_PROTOS
 from scapy.error import warning
+# TRex Change - Add BitField, ConditionalField
 from scapy.fields import ByteEnumField, ByteField, Field, FieldLenField, \
     FlagsField, IPField, IntField, MACField, \
     PacketListField, PadField, SecondsIntField, ShortEnumField, ShortField, \
     StrField, StrFixedLenField, ThreeBytesField, UTCTimeField, XByteField, \
-    XShortField, LongField
-from scapy.packet import Packet, bind_layers, bind_bottom_up
+    XShortField, LongField, BitField, ConditionalField
+# TRex Change - Add Raw
+from scapy.packet import Packet, bind_layers, bind_bottom_up, Raw
 from scapy.plist import PacketList
 from scapy.sessions import IPSession, DefaultSession
 

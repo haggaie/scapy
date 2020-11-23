@@ -281,8 +281,9 @@ class Route6:
 
         return res[0][2]
 
-
-conf.route6 = Route6()
+# TRex Change - Set Route to None
+# conf.route6 = Route6()
+conf.route6 = None
 try:
     conf.iface6 = conf.route6.route(None)[0]
 except Exception:

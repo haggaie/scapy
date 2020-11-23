@@ -97,8 +97,9 @@ class Net(Gen):
     @classmethod
     def _parse_net(cls, net):
         tmp = net.split('/') + ["32"]
-        if not cls.ip_regex.match(net):
-            tmp[0] = socket.gethostbyname(tmp[0])
+        # TRex Change
+        # if not cls.ip_regex.match(net):
+            # tmp[0] = socket.gethostbyname(tmp[0])
         netmask = int(tmp[1])
         ret_list = [cls._parse_digit(x, y - netmask) for (x, y) in zip(tmp[0].split('.'), [8, 16, 24, 32])]  # noqa: E501
         return ret_list, netmask
